@@ -267,136 +267,163 @@ static int getIconSizeIdx(const int iconSize)
     return it->first;
 }
 
-bool processThemes(wxString themeDir, wxString myTheme, bool metaPhase)
-{
-    wxDir directory(themeDir);
-    wxLogDebug("-- Metadata Phase?: %s", metaPhase ? "YES" : "NO");
-    wxLogDebug ("Scanning [%s] for Theme [%s]", themeDir, myTheme);
-    if ( !directory.IsOpened() ) return false;  
+bool loadIconsFromDir(const wxString& dirPath) {
+    wxDir dir(dirPath);
+    if (!dir.IsOpened()) {
+        wxLogDebug("Failed to open directory: %s", dirPath);
+        return false;
+    }
 
-    bool themeMatched = false;
     wxString filename;
-
-    bool cont = directory.GetFirst(&filename, "*.mmextheme", wxDIR_FILES);
-    while (cont)
-    {
-        wxFileName themeFile(themeDir, filename);
-        const wxString thisTheme = themeFile.GetName();
-        wxLogDebug ("Found theme [%s]", thisTheme);
-
-        wxFileInputStream themeZip(themeFile.GetFullPath());
-        wxASSERT(themeZip.IsOk());   // Make sure we can open find the Zip
-
-        if (!thisTheme.Cmp(myTheme))
-        {
-            themeMatched = true;
-            wxZipInputStream themeStream(themeZip);
-            std::unique_ptr<wxZipEntry> themeEntry;
-
-            const wxString bgString = mmThemeMetaString(meta::COLOR_NAVPANEL).AfterFirst('#');
-            long bgStringConv;
-            if (!bgString.ToLong(&bgStringConv, 16))
-                bgStringConv = -1;
-            else
-                bgStringConv = bgStringConv * 256 + 255;  // Need to add Alpha
-
-            while (themeEntry.reset(themeStream.GetNextEntry()), themeEntry) // != nullptr
-            {
-                wxASSERT(themeZip.CanRead()); // Make sure we can read the Zip Entry
-
-                const wxFileName fileEntryName = wxFileName(themeEntry->GetName());
-                const wxString fileFullPath = fileEntryName.GetFullPath();
-                const wxString fileEntry = fileEntryName.GetFullName();
-                std::string fileName = std::string(fileEntry.mb_str());
-                const wxString fileNameString(fileName);
-
-                if (fileEntryName.IsDir())
-                    continue;   // We can skip directories
-                
-                if (metaPhase)  // For this phase we are only interested in the metadata and checking if theme has dark-mode components
-                {
-                    if (fileName == "_theme.json")
-                    {
-                        wxMemoryOutputStream memOut(nullptr);
-                        themeStream.Read(memOut);
-                        const wxStreamBuffer* buffer = memOut.GetOutputStreamBuffer();
-                        wxString metaData(static_cast<char *>(buffer->GetBufferStart()), buffer->GetBufferSize());
-                        if (metaData_doc.Parse(metaData.utf8_str()).HasParseError())
-                        {
-                            wxMessageBox(wxString::Format(_("Metadata JSON in Theme '%s' cannot be parsed and looks badly constructed, please correct.")
-                                , thisTheme), _("Warning"), wxOK | wxICON_WARNING);
-                        }
-                    } else
-                    {
-                        if (!darkFound && fileNameString.StartsWith("dark-"))
-                            darkFound = true;
-                    }
-                    continue;
-                }
-
-                // Only process dark mode files when in theme and needed
-                if (darkFound)
-                {
-                    if (darkMode && !fileNameString.StartsWith("dark-"))
-                        continue;
-                    else if (!darkMode && fileNameString.StartsWith("dark-"))
-                        continue;
-                }
-
-                // Remove dark mode prefix 
-                if (darkFound && darkMode) 
-                    fileName = fileName.substr(5);
-
-                // If the file does not match an icon file then just load into VFS / tmp
-                if (!iconName2enum.count(fileName))
-                {                                        
-#if defined(__WXMSW__) || defined(__WXMAC__)
-                    wxMemoryOutputStream memOut(nullptr);
-                    themeStream.Read(memOut);
-                    const wxStreamBuffer* buffer = memOut.GetOutputStreamBuffer();
-
-                    if (wxNOT_FOUND != filesInVFS->Index(fileName)) // If already loaded then remove and replace
-                        wxMemoryFSHandler::RemoveFile(fileName);
-                    wxMemoryFSHandler::AddFile(fileName, buffer->GetBufferStart()
-                        , buffer->GetBufferSize());
-                    wxLogDebug("Theme: '%s' File: '%s' has been copied to VFS", thisTheme, fileName);
-#else                    
-                    const wxString theme_file = mmex::getTempFolder() + fileName;
-                    wxFileOutputStream fileOut(theme_file);
-                    if (!fileOut.IsOk())
-                        wxLogError("Could not copy %s !", fileFullPath);
-                    else
-                        wxLogDebug("Copying file:\n %s \nto\n %s", fileFullPath, theme_file);
-                    themeStream.Read(fileOut);
-
-#endif
-                    filesInVFS->Add(fileName);
-                    continue;
-                }
-
-                // So we have an icon file now, now need to convert from SVG to PNG at various resolutions and store
-                // it away for use
-
-                wxMemoryOutputStream memOut(nullptr);
-                themeStream.Read(memOut);
-                const wxStreamBuffer* buffer = memOut.GetOutputStreamBuffer();
-
-                int svgEnum = iconName2enum.find(fileName)->second.first;
-                for(const auto &sizePair : sizes)
-                {
-                    const unsigned int icon_size = sizePair.second;
-                    programIconBundles[sizePair.first][svgEnum] = new wxBitmapBundle(
-                                         wxBitmapBundle::FromSVG(
-                                               static_cast<wxByte*>(buffer->GetBufferStart()), buffer->GetBufferSize(),
-                                                                    wxSize( icon_size, icon_size )
-                                                                )
-                                                  );
+    bool cont = dir.GetFirst(&filename, wxEmptyString, wxDIR_FILES | wxDIR_DIRS);
+    bool foundAny = false;
+    
+    while (cont) {
+        wxFileName path(dirPath, filename);
+        
+        if (wxDirExists(path.GetFullPath())) {
+            // Skip . and ..
+            if (filename != "." && filename != "..") {
+                wxLogDebug("Scanning subdirectory: %s", path.GetFullPath());
+                if (loadIconsFromDir(path.GetFullPath())) {
+                    foundAny = true;
                 }
             }
+        } 
+        else if (filename.EndsWith(".svg")) {
+            wxLogDebug("Found icon: %s", filename);
+            
+            // Find the corresponding enum for this icon
+            bool iconFound = false;
+            for (const auto& icon : iconName2enum) {
+                if (icon.first == filename) {
+                    iconFound = true;
+                    wxLogDebug("Loading icon: %s (enum: %d)", path.GetFullPath(), icon.second.first);
+                    
+                    // Load the SVG file
+                    wxFFile file(path.GetFullPath(), "rb");
+                    if (file.IsOpened()) {
+                        wxString svgContent;
+                        if (file.ReadAll(&svgContent)) {
+                            // Create bitmap bundles for each size
+                            for (const auto& size : sizes) {
+                                wxBitmapBundle bundle = wxBitmapBundle::FromSVG(svgContent.c_str(), 
+                                    wxSize(size.second, size.second));
+                                if (bundle.IsOk()) {
+                                    programIconBundles[size.first][icon.second.first].reset(
+                                        new wxBitmapBundle(bundle));
+                                    foundAny = true;
+                                    wxLogDebug("Successfully loaded icon %s at size %d", 
+                                        filename, size.second);
+                                } else {
+                                    wxLogDebug("Failed to create bundle for %s at size %d", 
+                                        filename, size.second);
+                                }
+                            }
+                        } else {
+                            wxLogDebug("Failed to read SVG content from %s", path.GetFullPath());
+                        }
+                    } else {
+                        wxLogDebug("Failed to open SVG file: %s", path.GetFullPath());
+                    }
+                    break;
+                }
+            }
+            if (!iconFound) {
+                wxLogDebug("No enum found for icon: %s", filename);
+            }
         }
-        cont = directory.GetNext(&filename);
+        
+        cont = dir.GetNext(&filename);
     }
-    return (themeMatched);
+    
+    return foundAny;
+}
+
+bool processThemes(const wxString& themeDir, const wxString& myTheme, bool metaPhase)
+{
+    wxLogDebug("-- Metadata Phase?: %s", metaPhase ? "YES" : "NO");
+    wxLogDebug("Scanning [%s] for Theme [%s]", themeDir, myTheme);
+    
+    // Add directory existence check
+    if (!wxDir::Exists(themeDir)) {
+        wxLogDebug("Theme directory does not exist: %s", themeDir);
+        return false;
+    }
+
+    // Use wxFileName for path construction
+    wxFileName themePath(themeDir, "");
+    themePath.AppendDir(myTheme);
+    wxLogDebug("Looking for theme in: %s", themePath.GetFullPath());
+    
+    if (!wxDir::Exists(themePath.GetFullPath())) {
+        wxLogDebug("Theme subdirectory does not exist: %s", themePath.GetFullPath());
+        return false;
+    }
+
+    // Check for _theme.json
+    wxFileName themeFile(themePath.GetFullPath(), "_theme.json");
+    wxLogDebug("Looking for theme file: %s", themeFile.GetFullPath());
+    
+    if (!themeFile.FileExists()) {
+        wxLogDebug("Theme file does not exist: %s", themeFile.GetFullPath());
+        return false;
+    }
+
+    if (metaPhase) {
+        wxLogDebug("Processing theme metadata from: %s", themeFile.GetFullPath());
+        
+        // Read the JSON file
+        wxString jsonContent;
+        wxFFile file(themeFile.GetFullPath(), "rb");
+        if (!file.IsOpened() || !file.ReadAll(&jsonContent)) {
+            wxLogDebug("Failed to read theme file: %s", themeFile.GetFullPath());
+            return false;
+        }
+        
+        // Parse JSON
+        if (metaData_doc.Parse(jsonContent.utf8_str()).HasParseError()) {
+            wxLogDebug("Failed to parse theme JSON");
+            return false;
+        }
+
+        // Check for dark mode variant
+        darkFound = metaData_doc.HasMember("dark");
+        wxLogDebug("Dark mode variant %s", darkFound ? "found" : "not found");
+        
+        return true;
+    } 
+    else {
+        wxLogDebug("Processing theme files from: %s", themePath.GetFullPath());
+        
+        // Check for required files
+        wxFileName cssFile(themePath.GetFullPath(), 
+            (darkFound && darkMode) ? "dark-master.css" : "master.css");
+        
+        if (!cssFile.FileExists()) {
+            wxLogDebug("Required CSS file not found: %s", cssFile.GetFullPath());
+            return false;
+        }
+
+        wxLogDebug("Found CSS file: %s", cssFile.GetFullPath());
+        filesInVFS->Add(cssFile.GetFullName());
+        wxLogDebug("Added to VFS: %s", cssFile.GetFullName());
+        
+        // Look for icons in light/dark directories
+        wxString iconDir = (darkFound && darkMode) ? "dark" : "light";
+        wxFileName iconPath(themePath.GetFullPath(), "");
+        iconPath.AppendDir(iconDir);
+        
+        if (!wxDir::Exists(iconPath.GetFullPath())) {
+            wxLogDebug("Icon directory not found: %s", iconPath.GetFullPath());
+            return false;
+        }
+        
+        wxLogDebug("Found icon directory: %s", iconPath.GetFullPath());
+        
+        // Load icons recursively from all subdirectories
+        return loadIconsFromDir(iconPath.GetFullPath());
+    }
 }
 
 // Check that the loaded theme contains all the minimal files needed
@@ -411,8 +438,8 @@ bool checkThemeContents(wxArrayString *filesinTheme)
     {
         const wxString realName = (darkFound && darkMode) ? neededFiles[i].AfterLast('-') : neededFiles[i];
         if (wxNOT_FOUND == filesinTheme->Index(realName)) {
-            wxMessageBox(wxString::Format(_("File '%1$s' missing or invalid in chosen theme '%2$s'")
-                , neededFiles[i], Model_Setting::instance().Theme()), _("Warning"), wxOK | wxICON_WARNING);
+            wxLogDebug("File '%s' missing or invalid in chosen theme '%s'"
+                , neededFiles[i], Model_Setting::instance().Theme());
             success = false;
         }
     }
@@ -422,8 +449,8 @@ bool checkThemeContents(wxArrayString *filesinTheme)
     {
         if (std::get<2>(it.second) && mmThemeMetaString(it.first).IsEmpty())
         {
-            wxMessageBox(wxString::Format(_("Metadata '%1$s' missing in chosen theme '%2$s'")
-                , std::get<0>(it.second), Model_Setting::instance().Theme()), _("Warning"), wxOK | wxICON_WARNING);
+            wxLogDebug("Metadata '%s' missing in chosen theme '%s'"
+                , std::get<0>(it.second), Model_Setting::instance().Theme());
             success = false;
         }
     }
@@ -453,13 +480,9 @@ bool checkThemeContents(wxArrayString *filesinTheme)
 
     if (!missingIcons.IsEmpty())
     {
-        missingIcons.RemoveLast(2);
-        if (erroredIcons > maxCutOff) {
-            missingIcons << " " << wxGetTranslation(wxString::FromUTF8(wxTRANSLATE("and more…")));
-        }
-        wxMessageBox(wxString::Format(_("There are %1$d missing or invalid icons in chosen theme '%2$s': %3$s")
-            , erroredIcons, Model_Setting::instance().Theme(), missingIcons), _("Warning"), wxOK | wxICON_WARNING);
+        wxLogDebug("Missing icons: %s", missingIcons);
     }
+    
     return success;
 }
 
@@ -473,36 +496,51 @@ void reverttoDefaultTheme()
 
 void LoadTheme()
 {
-    darkMode = ( (mmex::isDarkMode() && (Option::THEME_MODE::AUTO == Option::instance().getThemeMode())) 
-                    || (Option::THEME_MODE::DARK == Option::instance().getThemeMode()));
+    darkMode = ((mmex::isDarkMode() && (Option::THEME_MODE::AUTO == Option::instance().getThemeMode())) 
+                || (Option::THEME_MODE::DARK == Option::instance().getThemeMode()));
     filesInVFS = new wxArrayString();
-
-    // Scan first for metadata then for the icons and other files
     darkFound = false;
-    if (processThemes(mmex::getPathResource(mmex::THEMESDIR), Model_Setting::instance().Theme(), true))
-        processThemes(mmex::getPathResource(mmex::THEMESDIR), Model_Setting::instance().Theme(), false);
-    else
-        if (processThemes(mmex::getPathUser(mmex::USERTHEMEDIR), Model_Setting::instance().Theme(), true))
-            processThemes(mmex::getPathUser(mmex::USERTHEMEDIR), Model_Setting::instance().Theme(), false);
-        else
-        {
-            wxMessageBox(wxString::Format(_("Theme %s not found, it may no longer be supported. Reverting to default theme")
-                , Model_Setting::instance().Theme()), _("Warning"), wxOK | wxICON_WARNING);
-            reverttoDefaultTheme();
-        }
+
+    wxString currentTheme = Model_Setting::instance().Theme();
+    wxLogDebug("Starting theme load for: %s", currentTheme);
     
-    if (!checkThemeContents(filesInVFS.get()))
-    {
-        wxMessageBox(wxString::Format(_("Theme %s has missing items and is incompatible. Reverting to default theme"), Model_Setting::instance().Theme()), _("Warning"), wxOK | wxICON_WARNING);
-        reverttoDefaultTheme();
-        if (!checkThemeContents(filesInVFS.get()))
-        {
-            // Time to give up as we couldn't find a workable theme
+    // Check system theme directory
+    wxString sysThemeDir = mmex::getPathResource(mmex::THEMESDIR);
+    wxLogDebug("System theme directory: %s", sysThemeDir);
+    
+    // Check user theme directory
+    wxString userThemeDir = mmex::getPathUser(mmex::USERTHEMEDIR);
+    wxLogDebug("User theme directory: %s", userThemeDir);
+    
+    bool themeLoaded = false;
+    
+    // Try system themes first
+    if (processThemes(sysThemeDir, currentTheme, true)) {
+        themeLoaded = processThemes(sysThemeDir, currentTheme, false);
+    }
+    
+    // Try user themes if system theme not found
+    if (!themeLoaded) {
+        if (processThemes(userThemeDir, currentTheme, true)) {
+            themeLoaded = processThemes(userThemeDir, currentTheme, false);
+        }
+    }
+
+    // If theme not found or invalid, load default theme once
+    if (!themeLoaded || !checkThemeContents(filesInVFS.get())) {
+        wxLogDebug("Theme load failed, reverting to default");
+        Model_Setting::instance().SetTheme("default");
+        darkFound = false;
+        
+        if (!processThemes(sysThemeDir, "default", true) ||
+            !processThemes(sysThemeDir, "default", false) ||
+            !checkThemeContents(filesInVFS.get())) {
+            wxLogDebug("Fatal: Could not load default theme from: %s", sysThemeDir);
             wxMessageBox(_("No workable theme found, the installation may be corrupt")
                 , _("Error"), wxOK | wxICON_ERROR);
             exit(EXIT_FAILURE);
         }
-    } 
+    }
 }
 
 void CloseTheme()

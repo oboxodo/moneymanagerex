@@ -65,10 +65,14 @@ mmThemesDialog::ThemeEntry mmThemesDialog::getThemeEntry(const wxString& name)
 
 void mmThemesDialog::addThemes(const wxString& themeDir, bool isSystem)
 {
-    wxString chosenTheme = Model_Setting::instance().Theme();
+    wxLogDebug("Scanning Theme Dir [%s] isSystem=%d", themeDir, isSystem);
     wxDir directory(themeDir);
-    wxLogDebug("Scanning Theme Dir [%s]", themeDir);
-    if (!directory.IsOpened()) return;
+    if (!directory.IsOpened()) {
+        wxLogDebug("Failed to open theme directory: %s", themeDir);
+        return;
+    }
+    
+    wxString chosenTheme = Model_Setting::instance().Theme();
     wxString filename;
 
     bool cont = directory.GetFirst(&filename, "*.mmextheme", wxDIR_FILES);
@@ -204,9 +208,18 @@ void mmThemesDialog::CreateControls()
 
 void mmThemesDialog::ReadThemes()
 {
+    wxLogDebug("Starting theme reading...");
     m_themes.clear();
-    addThemes(mmex::getPathResource(mmex::THEMESDIR), true);
-    addThemes(mmex::getPathUser(mmex::USERTHEMEDIR), false);
+    
+    // Add debug for system themes directory
+    wxString sysThemeDir = mmex::getPathResource(mmex::THEMESDIR);
+    wxLogDebug("System theme directory: %s", sysThemeDir);
+    addThemes(sysThemeDir, true);
+
+    // Add debug for user themes directory
+    wxString userThemeDir = mmex::getPathUser(mmex::USERTHEMEDIR);
+    wxLogDebug("User theme directory: %s", userThemeDir);
+    addThemes(userThemeDir, false);
 
     m_themesListBox_->Clear();
     for (const auto &theme : m_themes)
