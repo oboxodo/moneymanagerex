@@ -1,0 +1,29 @@
+{
+    "name": "MMEX Development",
+    "build": {
+        "dockerfile": "../dockers/ubuntu.jammy/Dockerfile",
+        "context": ".."
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools",
+                "twxs.cmake",
+                "eamodio.gitlens",
+                "ms-vscode.cpptools-extension-pack",
+                "xaver.clang-format"
+            ],
+            "settings": {
+                "cmake.configureOnOpen": true,
+                "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+            }
+        }
+    },
+    "forwardPorts": [],
+    "postCreateCommand": "mkdir -p build && cp /tmp/gitconfig /home/vscode/.gitconfig && git config --global --add safe.directory /workspaces/moneymanagerex",
+    "remoteUser": "vscode",
+    "mounts": [
+        "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/tmp/gitconfig,type=bind,consistency=cached"
+    ]
+} 

@@ -1,5 +1,8 @@
 FROM ubuntu:jammy
 MAINTAINER developers@moneymanagerex.org
+ARG USERNAME=vscode
+ARG USER_UID=1000
+RUN useradd -m -s /bin/bash -u ${USER_UID} ${USERNAME}
 RUN ln -snf /usr/share/zoneinfo/Europe/London /etc/localtime && echo "Europe/London" > /etc/timezone && \
     apt update && \
     apt install -y --no-install-recommends \
