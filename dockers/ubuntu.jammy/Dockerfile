@@ -1,8 +1,17 @@
 FROM ubuntu:jammy
 MAINTAINER developers@moneymanagerex.org
+
+RUN apt-get update && apt-get install -y \
+    sudo \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG USERNAME=vscode
 ARG USER_UID=1000
-RUN useradd -m -s /bin/bash -u ${USER_UID} ${USERNAME}
+RUN useradd -m -s /bin/bash -u ${USER_UID} ${USERNAME} \
+    && echo ${USERNAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
+
 RUN ln -snf /usr/share/zoneinfo/Europe/London /etc/localtime && echo "Europe/London" > /etc/timezone && \
     apt update && \
     apt install -y --no-install-recommends \
