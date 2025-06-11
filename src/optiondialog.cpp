@@ -33,9 +33,16 @@
 #include "optionsettingsnet.h"
 #include "optionsettingsmisc.h"
 
-static const wxArrayString s_pagetitle = {
-    _n("General"), _n("View"), _n("Dashboard"), _n("Attachments"), _n("Network"), _n("Other")
-};
+static const wxArrayString s_pagetitle = []() {
+    wxArrayString titles;
+    titles.Add(_n("General"));
+    titles.Add(_n("View"));
+    titles.Add(_n("Dashboard"));
+    titles.Add(_n("Attachments"));
+    titles.Add(_n("Network"));
+    titles.Add(_n("Other"));
+    return titles;
+}();
 
 wxIMPLEMENT_DYNAMIC_CLASS(mmOptionsDialog, wxDialog)
 
