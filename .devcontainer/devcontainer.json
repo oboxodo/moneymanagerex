@@ -1,0 +1,33 @@
+{
+    "name": "MMEX Development",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools",
+                // "twxs.cmake",
+                "eamodio.gitlens"
+            ]
+        }
+    },
+    "remoteUser": "vscode",
+    "features": {
+        "ghcr.io/devcontainers/features/common-utils:2": {
+            "installZsh": true,
+            "username": "vscode",
+            "upgradePackages": true
+        },
+        "ghcr.io/devcontainers/features/git:1": {}
+    },
+    "runArgs": [
+        "--name=mmex-dev",
+        "--env=DISPLAY=:0",
+        "--env=WAYLAND_DISPLAY=${localEnv:WAYLAND_DISPLAY}",
+        "--env=XDG_RUNTIME_DIR=${localEnv:XDG_RUNTIME_DIR}",
+        "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+        "--volume=${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY}:/tmp/${localEnv:WAYLAND_DISPLAY}"
+    ]
+}
